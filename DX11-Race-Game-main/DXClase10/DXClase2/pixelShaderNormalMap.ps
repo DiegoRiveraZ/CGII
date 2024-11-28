@@ -1,0 +1,53 @@
+// Pixel Shader para el Edificio
+struct Light
+{
+    float3 direction;
+    float4 ambient;
+    float4 diffuse;
+    float specularPower;
+};
+
+cbuffer ConstantBufferPS
+{
+    Light light;
+};
+
+struct PS_INPUT
+{
+    float4 Pos : SV_POSITION;
+    float2 TexCoord : TEXCOORD0;
+    float3 normal : NORMAL;
+    float3 viewDirection : TEXCOORD1;
+    float3 tangent : TANGENT;
+    float3 binormal : BINORMAL;
+};
+
+Texture2D ObjTexture : register(t0);
+Texture2D ObjNormTex : register(t1);
+SamplerState ObjSamplerState : register(s0);
+
+float4 PS(PS_INPUT input) : SV_Target
+{
+    input.normal = normalize(input.normal);
+    input.tangent = normalize(input.tangent);
+    input.binormal = normalize(input.binormal);
+
+    float4 textureColor = ObjTexture.Sample(ObjSamplerState, input.TexCoord);
+    float4 normalMap = ObjNormTex.Sample(ObjSamplerState, input.TexCoord);
+
+    normalMap = (2.0f * normalMap) - 1.0f;
+
+    float3 bumpNormal = normalize((normalMap.x * input.tangent) + 
+                                  (normalMap.y * input.binormal) + 
+                                  (normalMap.z * input.normal));
+
+    float3 ambient = light.ambient.rgb;
+    float3 lightDir = normalize(light.direction);
+    float diffuse = max(dot(bumpNormal, lightDir), 0.0f);
+    float3 reflectDir = reflect(-lightDir, bumpNormal);
+    float spec = pow(max(dot(input.viewDirection, reflectDir), 0.0f), light.specularPower);
+
+    float3 finalColor = textureColor.rgb * (ambient + diffuse * light.diffuse.rgb + spec);
+    
+    return float4(finalColor, textureColor.a);
+}

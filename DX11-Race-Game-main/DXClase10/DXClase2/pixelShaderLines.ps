@@ -1,0 +1,76 @@
+// Estructura para definir las luces
+struct Light
+{
+    float3 direction;    // Dirección de la luz (como la luz solar)
+    float4 ambient;      // Color de la luz ambiental
+    float4 diffuse;      // Color de la luz difusa
+    float specularPower; // Potencia del brillo especular
+};
+
+cbuffer ConstantBufferPS
+{
+    Light light; // Parámetros de iluminación
+};
+
+struct PS_INPUT
+{
+    float4 Pos : SV_POSITION;    // Posición del vértice en el espacio de pantalla
+    float2 TexCoord : TEXCOORD0; // Coordenadas de la textura
+    float3 normal : NORMAL;      // Normal del vértice
+    float3 viewDirection : TEXCOORD1; // Dirección de la vista (cámara)
+    float3 tangent : TANGENT;    // Tangente del vértice
+    float3 binormal : BINORMAL;  // Binormal del vértice
+};
+
+// Texturas
+Texture2D ObjTexture : register(t0);  // Textura del objeto (por ejemplo, pintura de la bici)
+Texture2D ObjNormTex : register(t1);  // Mapa normal del objeto
+Texture2D ObjSpecTex : register(t2);  // Mapa especular del objeto (opcional)
+SamplerState ObjSamplerState : register(s0);  // Sampler para las texturas
+
+float4 PS(PS_INPUT input) : SV_Target
+{
+    // Normalizamos las normales, tangentes y binormales
+    input.normal = normalize(input.normal);
+    input.tangent = normalize(input.tangent);
+    input.binormal = normalize(input.binormal);
+
+    // Sampleamos la textura base y el mapa normal
+    float4 textureColor = ObjTexture.Sample(ObjSamplerState, input.TexCoord);
+    float4 normalMap = ObjNormTex.Sample(ObjSamplerState, input.TexCoord);
+
+    // Cambiamos el rango del mapa normal de [0, 1] a [-1, 1]
+    normalMap = (2.0f * normalMap) - 1.0f;
+
+    // Calculamos la normal de la superficie utilizando el mapa de normales
+    float3 bumpNormal = normalize((normalMap.x * input.tangent) + 
+                                  (normalMap.y * input.binormal) + 
+                                  (normalMap.z * input.normal));
+
+    // Iluminación Ambiental
+    float3 ambient = light.ambient.rgb;
+
+    // Iluminación Difusa
+    float3 lightDir = normalize(light.direction);
+    float diffuse = max(dot(bumpNormal, lightDir), 0.0f);  // Producto punto para la difusa
+
+    // Iluminación Especular
+    float3 reflectDir = reflect(-lightDir, bumpNormal);
+    float spec = pow(max(dot(input.viewDirection, reflectDir), 0.0f), light.specularPower);
+
+    // Si hay un mapa especular, lo usamos para modificar el brillo especular
+    if (ObjSpecTex)
+    {
+        float4 specularMap = ObjSpecTex.Sample(ObjSamplerState, input.TexCoord);
+        spec *= specularMap.r; // Usamos el valor rojo del mapa especular para el brillo
+    }
+
+    // Combinamos la textura base con la iluminación
+    float3 finalColor = textureColor.rgb * (ambient + diffuse * light.diffuse.rgb + spec);
+
+    // Aseguramos que el color no sea mayor a 1 (usamos saturate para evitar colores inválidos)
+    finalColor = saturate(finalColor);
+
+    // Devolvemos el color final con el canal alpha de la textura
+    return float4(finalColor, textureColor.a);
+}
